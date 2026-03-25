@@ -31,8 +31,51 @@
 #include "llaudioengine_openal.h"
 #include "lllistener_openal.h"
 
+#include "AL/alc.h"
+
+#include <cstring>
+#include <set>
 
 const float LLAudioEngine_OpenAL::WIND_BUFFER_SIZE_SEC = 0.05f;
+
+namespace {
+
+void append_alc_device_list(const ALCchar *list, std::vector<std::string> &out, std::set<std::string> *seen)
+{
+    if (!list)
+    {
+        return;
+    }
+    while (*list)
+    {
+        std::string name(list);
+        if (!name.empty() && seen->insert(name).second)
+        {
+            out.push_back(std::move(name));
+        }
+        list += strlen(list) + 1;
+    }
+}
+
+const ALCchar *pick_enumeration_list(ALCdevice *probe)
+{
+    if (alcIsExtensionPresent(probe, "ALC_ENUMERATE_ALL_EXT"))
+    {
+        return alcGetString(NULL, ALC_ALL_DEVICES_SPECIFIER);
+    }
+    if (alcIsExtensionPresent(probe, "ALC_ENUMERATION_EXT"))
+    {
+        return alcGetString(NULL, ALC_DEVICE_SPECIFIER);
+    }
+    return NULL;
+}
+
+bool openal_output_is_default(const std::string &s)
+{
+    return s.empty() || s == "Default";
+}
+
+} // namespace
 
 LLAudioEngine_OpenAL::LLAudioEngine_OpenAL()
     :
@@ -42,7 +85,9 @@ LLAudioEngine_OpenAL::LLAudioEngine_OpenAL()
     mWindBufSamples(0),
     mWindBufBytes(0),
     mWindSource(AL_NONE),
-    mNumEmptyWindALBuffers(MAX_NUM_WIND_BUFFERS)
+    mNumEmptyWindALBuffers(MAX_NUM_WIND_BUFFERS),
+    mAlcDevice(NULL),
+    mAlcContext(NULL)
 {
 }
 
@@ -52,14 +97,64 @@ LLAudioEngine_OpenAL::~LLAudioEngine_OpenAL()
 }
 
 // virtual
-bool LLAudioEngine_OpenAL::init(void* userdata, const std::string &app_title)
+bool LLAudioEngine_OpenAL::init(void* userdata, const std::string &app_title,
+                                const std::string &output_device)
 {
     mWindGen = NULL;
-    LLAudioEngine::init(userdata, app_title);
+    mAlcDevice = NULL;
+    mAlcContext = NULL;
+    LLAudioEngine::init(userdata, app_title, output_device);
 
-    if(!alutInit(NULL, NULL))
+    const char *device_spec = NULL;
+    if (!openal_output_is_default(output_device))
     {
-        LL_WARNS() << "LLAudioEngine_OpenAL::init() ALUT initialization failed: " << alutGetErrorString (alutGetError ()) << LL_ENDL;
+        device_spec = output_device.c_str();
+        mOutputDeviceName = output_device;
+    }
+    else
+    {
+        mOutputDeviceName = "Default";
+    }
+
+    mAlcDevice = alcOpenDevice(device_spec);
+    if (!mAlcDevice && device_spec)
+    {
+        LL_WARNS("AudioEngine") << "OpenAL could not open device \""
+            << output_device << "\", falling back to default device" << LL_ENDL;
+        mAlcDevice = alcOpenDevice(NULL);
+        mOutputDeviceName = "Default";
+    }
+    if (!mAlcDevice)
+    {
+        LL_WARNS() << "LLAudioEngine_OpenAL::init() alcOpenDevice failed" << LL_ENDL;
+        return false;
+    }
+
+    mAlcContext = alcCreateContext(mAlcDevice, NULL);
+    if (!mAlcContext || !alcMakeContextCurrent(mAlcContext))
+    {
+        LL_WARNS() << "LLAudioEngine_OpenAL::init() alcCreateContext / alcMakeContextCurrent failed" << LL_ENDL;
+        if (mAlcContext)
+        {
+            alcDestroyContext(mAlcContext);
+            mAlcContext = NULL;
+        }
+        alcCloseDevice(mAlcDevice);
+        mAlcDevice = NULL;
+        return false;
+    }
+
+    // freealut requires (argcp == NULL) == (argv == NULL); mismatched pointers fail with INVALID_VALUE.
+    if (!alutInitWithoutContext(NULL, NULL))
+    {
+        LL_WARNS() << "LLAudioEngine_OpenAL::init() alutInitWithoutContext failed: "
+            << alutGetErrorString(alutGetError()) << LL_ENDL;
+        alutGetError();
+        alcMakeContextCurrent(NULL);
+        alcDestroyContext(mAlcContext);
+        mAlcContext = NULL;
+        alcCloseDevice(mAlcDevice);
+        mAlcDevice = NULL;
         return false;
     }
 
@@ -72,8 +167,8 @@ bool LLAudioEngine_OpenAL::init(void* userdata, const std::string &app_title)
     LL_INFOS() << "OpenAL renderer: "
         << ll_safe_string(alGetString(AL_RENDERER)) << LL_ENDL;
 
-    ALint major = alutGetMajorVersion ();
-    ALint minor = alutGetMinorVersion ();
+    ALint major = alutGetMajorVersion();
+    ALint minor = alutGetMinorVersion();
     LL_INFOS() << "ALUT version: " << major << "." << minor << LL_ENDL;
 
     ALCdevice *device = alcGetContextsDevice(alcGetCurrentContext());
@@ -83,9 +178,9 @@ bool LLAudioEngine_OpenAL::init(void* userdata, const std::string &app_title)
     LL_INFOS() << "ALC version: " << major << "." << minor << LL_ENDL;
 
     LL_INFOS() << "ALC default device: "
-        << ll_safe_string(alcGetString(device,
-                           ALC_DEFAULT_DEVICE_SPECIFIER))
+        << ll_safe_string(alcGetString(device, ALC_DEFAULT_DEVICE_SPECIFIER))
         << LL_ENDL;
+    LL_INFOS() << "OpenAL output device in use: " << mOutputDeviceName << LL_ENDL;
 
     return true;
 }
@@ -146,15 +241,47 @@ void LLAudioEngine_OpenAL::shutdown()
     }
 
     LL_INFOS() << "About to alutExit()" << LL_ENDL;
-    if(!alutExit())
+    if (!alutExit())
     {
-        LL_WARNS() << "LLAudioEngine_OpenAL::shutdown() ALUT shutdown failed: " << alutGetErrorString (alutGetError ()) << LL_ENDL;
+        LL_WARNS() << "LLAudioEngine_OpenAL::shutdown() ALUT shutdown failed: "
+            << alutGetErrorString(alutGetError()) << LL_ENDL;
     }
-
-    LL_INFOS() << "LLAudioEngine_OpenAL::shutdown() OpenAL successfully shut down" << LL_ENDL;
 
     delete mListenerp;
     mListenerp = NULL;
+
+    if (mAlcContext)
+    {
+        alcMakeContextCurrent(NULL);
+        alcDestroyContext(mAlcContext);
+        mAlcContext = NULL;
+    }
+    if (mAlcDevice)
+    {
+        alcCloseDevice(mAlcDevice);
+        mAlcDevice = NULL;
+    }
+
+    LL_INFOS() << "LLAudioEngine_OpenAL::shutdown() OpenAL successfully shut down" << LL_ENDL;
+}
+
+void LLAudioEngine_OpenAL::getOutputAudioDeviceNames(std::vector<std::string> &devices) const
+{
+    devices.clear();
+    std::set<std::string> seen;
+    ALCdevice *probe = alcOpenDevice(NULL);
+    if (!probe)
+    {
+        return;
+    }
+    const ALCchar *list = pick_enumeration_list(probe);
+    append_alc_device_list(list, devices, &seen);
+    alcCloseDevice(probe);
+}
+
+std::string LLAudioEngine_OpenAL::getOutputAudioDevice() const
+{
+    return mOutputDeviceName;
 }
 
 LLAudioBuffer *LLAudioEngine_OpenAL::createBuffer()

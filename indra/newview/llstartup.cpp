@@ -747,7 +747,8 @@ bool idle_startup()
 #else
                 void* window_handle = NULL;
 #endif
-                if (gAudiop->init(window_handle, LLAppViewer::instance()->getSecondLifeTitle()))
+                const std::string openal_output_device = gSavedSettings.getString("AudioOutputOpenALDevice");
+                if (gAudiop->init(window_handle, LLAppViewer::instance()->getSecondLifeTitle(), openal_output_device))
                 {
                     LL_INFOS("AppInit") << "Using media plugins to render streaming audio" << LL_ENDL;
                     gAudiop->setStreamingAudioImpl(new LLStreamingAudio_MediaPlugins());

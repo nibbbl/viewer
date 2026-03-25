@@ -27,6 +27,9 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "llaudioengine.h"
+#ifdef LL_OPENAL
+#include "llaudioengine_openal.h"
+#endif
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "llappviewer.h"
@@ -46,6 +49,7 @@
 #include "llviewermessage.h"
 
 #include "llstreamingaudio.h"
+#include "llviewermedia_streamingaudio.h"
 
 /////////////////////////////////////////////////////////
 const U32 FMODEX_DECODE_BUFFER_SIZE = 1000; // in milliseconds
@@ -394,6 +398,63 @@ void init_audio()
     }
 
     audio_update_volume(true);
+}
+
+bool recycle_audio_engine()
+{
+    if (gSavedSettings.getBOOL("NoAudio"))
+    {
+        return false;
+    }
+
+#ifdef LL_OPENAL
+#if !LL_WINDOWS
+    if (NULL != getenv("LL_BAD_OPENAL_DRIVER"))
+    {
+        return false;
+    }
+#endif
+
+    std::string stream_url;
+    bool was_playing = false;
+    if (gAudiop)
+    {
+        stream_url = gAudiop->getInternetStreamURL();
+        was_playing = (gAudiop->isInternetStreamPlaying() == LLAudioEngine::AUDIO_PLAYING);
+        gAudiop->stopInternetStream();
+        LLStreamingAudioInterface *sai = gAudiop->getStreamingAudioImpl();
+        delete sai;
+        gAudiop->setStreamingAudioImpl(NULL);
+        gAudiop->shutdown();
+        delete gAudiop;
+        gAudiop = NULL;
+    }
+
+    gAudiop = new LLAudioEngine_OpenAL();
+#if LL_WINDOWS
+    void *window_handle = (HWND)gViewerWindow->getPlatformWindow();
+#else
+    void *window_handle = NULL;
+#endif
+    const std::string dev = gSavedSettings.getString("AudioOutputOpenALDevice");
+    if (!gAudiop->init(window_handle, LLAppViewer::instance()->getSecondLifeTitle(), dev))
+    {
+        LL_WARNS("Audio") << "recycle_audio_engine: OpenAL init failed" << LL_ENDL;
+        delete gAudiop;
+        gAudiop = NULL;
+        return false;
+    }
+    gAudiop->setStreamingAudioImpl(new LLStreamingAudio_MediaPlugins());
+    init_audio();
+    audio_update_volume(true);
+    if (was_playing && !stream_url.empty())
+    {
+        gAudiop->startInternetStream(stream_url);
+    }
+    return true;
+#else
+    return false;
+#endif
 }
 
 void audio_update_volume(bool force_update)

@@ -35,6 +35,8 @@
 //#define kAUDIO_ENABLE_WATER 1 // comment out to turn off water
 
 void init_audio();
+// Recreate OpenAL and streaming-audio wrapper (e.g. after output device change). No-op if NoAudio.
+bool recycle_audio_engine();
 void audio_update_volume(bool force_update = true);
 void audio_update_listener();
 void audio_update_wind(bool force_update = true);

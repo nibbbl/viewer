@@ -317,6 +317,22 @@ private:
     LOG_CLASS(LLPanelPreferenceGraphics);
 };
 
+class LLPanelPreferenceSound : public LLPanelPreference
+{
+    LOG_CLASS(LLPanelPreferenceSound);
+public:
+    LLPanelPreferenceSound();
+    bool postBuild() override;
+    void cancel(const std::vector<std::string> settings_to_skip = {}) override;
+
+private:
+    void refreshOpenALDeviceList();
+    void onOpenALOutputDeviceCommit(LLUICtrl *ctrl, const LLSD &userdata);
+    void onRefreshOpenALDevicesBtn(LLUICtrl *ctrl, const LLSD &userdata);
+
+    LLComboBox *mOpenALDeviceCombo;
+};
+
 class LLPanelPreferenceControls : public LLPanelPreference, public LLKeyBindResponderInterface
 {
     LOG_CLASS(LLPanelPreferenceControls);

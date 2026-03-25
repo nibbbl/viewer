@@ -291,6 +291,17 @@
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>AudioOutputOpenALDevice</key>
+    <map>
+      <key>Comment</key>
+      <string>OpenAL output device for world, UI, and ambient audio (not streaming music, media, or voice)</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string>Default</string>
+    </map>
     <key>AudioLevelMedia</key>
     <map>
       <key>Comment</key>

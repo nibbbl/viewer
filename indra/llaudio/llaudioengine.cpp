@@ -103,8 +103,10 @@ void LLAudioEngine::setDefaults()
 }
 
 
-bool LLAudioEngine::init(void* userdata, const std::string &app_title)
+bool LLAudioEngine::init(void* userdata, const std::string &app_title,
+                         const std::string &output_device)
 {
+    (void)output_device;
     setDefaults();
 
     mUserData = userdata;
@@ -114,6 +116,18 @@ bool LLAudioEngine::init(void* userdata, const std::string &app_title)
     LL_INFOS("AudioEngine") << "LLAudioEngine::init() AudioEngine successfully initialized" << LL_ENDL;
 
     return true;
+}
+
+// virtual
+void LLAudioEngine::getOutputAudioDeviceNames(std::vector<std::string> &devices) const
+{
+    devices.clear();
+}
+
+// virtual
+std::string LLAudioEngine::getOutputAudioDevice() const
+{
+    return std::string();
 }
 
 

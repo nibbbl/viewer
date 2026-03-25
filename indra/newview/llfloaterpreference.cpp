@@ -76,7 +76,9 @@
 #include "llviewereventrecorder.h"
 #include "llviewermessage.h"
 #include "llviewerwindow.h"
+#include "llvieweraudio.h"
 #include "llviewerthrottle.h"
+#include "llaudioengine.h"
 #include "llvoavatarself.h"
 #include "llvotree.h"
 #include "llfloaterpathfindingconsole.h"
@@ -2450,7 +2452,93 @@ private:
 };
 
 static LLPanelInjector<LLPanelPreferenceGraphics> t_pref_graph("panel_preference_graphics");
+static LLPanelInjector<LLPanelPreferenceSound> t_pref_sound("panel_preference_sound");
 static LLPanelInjector<LLPanelPreferencePrivacy> t_pref_privacy("panel_preference_privacy");
+
+LLPanelPreferenceSound::LLPanelPreferenceSound()
+    : LLPanelPreference(),
+      mOpenALDeviceCombo(nullptr)
+{
+    mCommitCallbackRegistrar.add("PrefSound.onOpenALOutputDevice",
+        boost::bind(&LLPanelPreferenceSound::onOpenALOutputDeviceCommit, this, _1, _2));
+    mCommitCallbackRegistrar.add("PrefSound.refreshOpenALDevices",
+        boost::bind(&LLPanelPreferenceSound::onRefreshOpenALDevicesBtn, this, _1, _2));
+}
+
+bool LLPanelPreferenceSound::postBuild()
+{
+    mOpenALDeviceCombo = getChild<LLComboBox>("openal_output_device");
+    const bool ok = LLPanelPreference::postBuild();
+#ifndef LL_OPENAL
+    if (LLView *label = findChild<LLView>("openal_output_label", false))
+    {
+        label->setVisible(false);
+    }
+    if (mOpenALDeviceCombo)
+    {
+        mOpenALDeviceCombo->setVisible(false);
+    }
+    if (LLView *btn = findChild<LLView>("refresh_openal_devices", false))
+    {
+        btn->setVisible(false);
+    }
+#else
+    refreshOpenALDeviceList();
+#endif
+    return ok;
+}
+
+void LLPanelPreferenceSound::cancel(const std::vector<std::string> settings_to_skip)
+{
+    LLPanelPreference::cancel(settings_to_skip);
+    recycle_audio_engine();
+}
+
+void LLPanelPreferenceSound::refreshOpenALDeviceList()
+{
+    if (!mOpenALDeviceCombo)
+    {
+        return;
+    }
+    const std::string current = gSavedSettings.getString("AudioOutputOpenALDevice");
+    // clear() only resets selection/labels; clearRows() removes list items (see LLComboBox::clear).
+    mOpenALDeviceCombo->clearRows();
+    mOpenALDeviceCombo->clear();
+    mOpenALDeviceCombo->add(getString("openal_device_default"), LLSD("Default"), ADD_BOTTOM, true);
+    std::vector<std::string> names;
+    if (gAudiop)
+    {
+        gAudiop->getOutputAudioDeviceNames(names);
+    }
+    for (const auto &name : names)
+    {
+        mOpenALDeviceCombo->add(name, LLSD(name), ADD_BOTTOM, true);
+    }
+    // setSelectedByValue(..., false) deselects; use selectByValue (true) to select.
+    if (!mOpenALDeviceCombo->selectByValue(LLSD(current)))
+    {
+        mOpenALDeviceCombo->selectByValue(LLSD("Default"));
+    }
+}
+
+void LLPanelPreferenceSound::onOpenALOutputDeviceCommit(LLUICtrl *ctrl, const LLSD &userdata)
+{
+    (void)userdata;
+    LLComboBox *box = ctrl ? dynamic_cast<LLComboBox *>(ctrl) : mOpenALDeviceCombo;
+    if (!box)
+    {
+        return;
+    }
+    gSavedSettings.setString("AudioOutputOpenALDevice", box->getValue().asString());
+    recycle_audio_engine();
+}
+
+void LLPanelPreferenceSound::onRefreshOpenALDevicesBtn(LLUICtrl *ctrl, const LLSD &userdata)
+{
+    (void)ctrl;
+    (void)userdata;
+    refreshOpenALDeviceList();
+}
 
 bool LLPanelPreferenceGraphics::postBuild()
 {

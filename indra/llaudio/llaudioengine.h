@@ -31,6 +31,8 @@
 #include <list>
 #include <map>
 #include <array>
+#include <string>
+#include <vector>
 
 #include "v3math.h"
 #include "v3dmath.h"
@@ -89,7 +91,9 @@ public:
     virtual ~LLAudioEngine();
 
     // initialization/startup/shutdown
-    virtual bool init(void *userdata, const std::string &app_title);
+    // output_device: empty or "Default" uses the OpenAL default device (OpenAL builds only).
+    virtual bool init(void *userdata, const std::string &app_title,
+                      const std::string &output_device = std::string());
     virtual std::string getDriverName(bool verbose) = 0;
     virtual LLStreamingAudioInterface *createDefaultStreamingAudioImpl() const = 0;
     virtual void shutdown();
@@ -157,6 +161,10 @@ public:
     // use a value from 0.0 to 1.0, inclusive
     void setInternetStreamGain(F32 vol);
     std::string getInternetStreamURL();
+
+    // Output device (OpenAL): base implementation leaves devices empty and name blank.
+    virtual void getOutputAudioDeviceNames(std::vector<std::string> &devices) const;
+    virtual std::string getOutputAudioDevice() const;
 
     // For debugging usage
     virtual LLVector3 getListenerPos();

@@ -30,6 +30,9 @@
 #ifndef LL_AUDIOENGINE_OPENAL_H
 #define LL_AUDIOENGINE_OPENAL_H
 
+#include <string>
+#include <vector>
+
 #include "llaudioengine.h"
 #include "lllistener_openal.h"
 #include "llwindgen.h"
@@ -40,12 +43,16 @@ class LLAudioEngine_OpenAL : public LLAudioEngine
         LLAudioEngine_OpenAL();
         virtual ~LLAudioEngine_OpenAL();
 
-        virtual bool init(void *user_data, const std::string &app_title);
+        virtual bool init(void *user_data, const std::string &app_title,
+                          const std::string &output_device = std::string());
         virtual std::string getDriverName(bool verbose);
         virtual LLStreamingAudioInterface* createDefaultStreamingAudioImpl() const { return nullptr; }
         virtual void allocateListener();
 
         virtual void shutdown();
+
+        void getOutputAudioDeviceNames(std::vector<std::string> &devices) const override;
+        std::string getOutputAudioDevice() const override;
 
         void setInternalGain(F32 gain);
 
@@ -68,6 +75,10 @@ class LLAudioEngine_OpenAL : public LLAudioEngine
 
         static const int MAX_NUM_WIND_BUFFERS = 80;
         static const float WIND_BUFFER_SIZE_SEC; // 1/20th sec
+
+        ALCdevice *mAlcDevice;
+        ALCcontext *mAlcContext;
+        std::string mOutputDeviceName;
 };
 
 class LLAudioChannelOpenAL : public LLAudioChannel
